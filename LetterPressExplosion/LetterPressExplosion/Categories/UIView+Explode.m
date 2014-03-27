@@ -7,13 +7,25 @@
 //
 
 #import <QuartzCore/QuartzCore.h>
-
+#import <objc/runtime.h>
 #import "UIView+Explode.h"
 
 @interface LPParticleLayer : CALayer
-
 @property (nonatomic, strong) UIBezierPath *particlePath;
+@end
 
+@implementation LPParticleLayer
+
+- (void)dealloc {
+    self.particlePath = nil;
+}
+
+@end
+
+@interface UIView (ExplodePrivate)
+@property (nonatomic, assign) NSUInteger totalPieces;
+@property (nonatomic, assign) NSUInteger pieceCount;
+@property (nonatomic, strong) void(^completionHandler)(void);
 @end
 
 @implementation UIView (Explode)
@@ -37,23 +49,36 @@ float randomFloat()
 
 - (void)lp_explode
 {
-    float size = self.frame.size.width/5;
-    CGSize imageSize = CGSizeMake(size, size);
+    [self lp_explode:nil];
+}
+
+- (void)lp_explode:(void (^)(void))completion
+{
+    [self lp_explodeWithRows:5 columns:5 speed:2.35f completion:completion];
+}
+
+- (void)lp_explodeWithRows:(NSUInteger)rows columns:(NSUInteger)columns speed:(CGFloat)speed completion:(void (^)(void))completion
+{
+    self.totalPieces = columns * rows;
+    self.pieceCount = 0;
+    self.completionHandler = completion;
     
-    CGFloat cols = self.frame.size.width / imageSize.width ;
-    CGFloat rows = self.frame.size.height /imageSize.height;
+    float width = self.frame.size.width / columns;
+    float height = self.frame.size.height / rows;
+    CGSize imageSize = CGSizeMake(width, height);
     
-    int fullColumns = floorf(cols);
-    int fullRows = floorf(rows);
+    CGFloat columnsCount = self.frame.size.width / imageSize.width;
+    CGFloat rowsCount = self.frame.size.height / imageSize.height;
     
-    CGFloat remainderWidth = self.frame.size.width  -
-    (fullColumns * imageSize.width);
-    CGFloat remainderHeight = self.frame.size.height -
-    (fullRows * imageSize.height );
+    int fullColumns = floorf(columnsCount);
+    int fullRows = floorf(rowsCount);
+    
+    CGFloat remainderWidth = self.frame.size.width  - (fullColumns * imageSize.width);
+    CGFloat remainderHeight = self.frame.size.height - (fullRows * imageSize.height );
     
     
-    if (cols > fullColumns) fullColumns++;
-    if (rows > fullRows) fullRows++;
+    if (columnsCount > fullColumns) fullColumns++;
+    if (rowsCount > fullRows) fullRows++;
     
     CGRect originalFrame = self.layer.frame;
     CGRect originalBounds = self.layer.bounds;
@@ -124,7 +149,7 @@ float randomFloat()
         
         float r = randomFloat();
 
-        NSTimeInterval speed = 2.35*r;
+        NSTimeInterval duration = speed * r;
         
         CAKeyframeAnimation *transformAnim = [CAKeyframeAnimation animationWithKeyPath:@"transform"];
         
@@ -137,7 +162,7 @@ float randomFloat()
         [transformAnim setValues:boundsValues];
         
         NSArray *times = [NSArray arrayWithObjects:[NSNumber numberWithFloat:0.0],
-                          [NSNumber numberWithFloat:speed*.25], nil];
+                          [NSNumber numberWithFloat:duration*.25], nil];
         [transformAnim setKeyTimes:times];
         
         
@@ -155,37 +180,44 @@ float randomFloat()
         opacityAnim.toValue = [NSNumber numberWithFloat:0.f];
         opacityAnim.removedOnCompletion = NO;
         opacityAnim.fillMode =kCAFillModeForwards;
-       
         
         CAAnimationGroup *animGroup = [CAAnimationGroup animation];
         animGroup.animations = [NSArray arrayWithObjects:moveAnim,transformAnim,opacityAnim, nil];
-        animGroup.duration = speed;
+        animGroup.duration = duration;
         animGroup.fillMode =kCAFillModeForwards;
         animGroup.delegate = self;
         [animGroup setValue:layer forKey:@"animationLayer"];
+        [animGroup setValue:@"explosion" forKey:@"identifier"];
         [layer addAnimation:animGroup forKey:nil];
         
         //take it off screen
         [layer setPosition:CGPointMake(0, -600)];
-        
     }];
 }
 
 
 - (void)animationDidStop:(CAAnimation *)theAnimation finished:(BOOL)flag
 {
-    LPParticleLayer *layer = [theAnimation valueForKey:@"animationLayer"];
-    
-    if (layer)
+    if ([[theAnimation valueForKey:@"identifier"] isEqualToString:@"explosion"])
     {
-        //make sure we dont have any more
-        if ([[self.layer sublayers] count]==1)
-        {
-            [self removeFromSuperview];
-        }
-        else
+        LPParticleLayer *layer = [theAnimation valueForKey:@"animationLayer"];
+        if (layer)
         {
             [layer removeFromSuperlayer];
+        }
+
+        self.pieceCount++;
+        
+        if (self.pieceCount == self.totalPieces)
+        {
+            [self cleanTotalPieces];
+            [self cleanPieceCount];
+            
+            if (self.completionHandler)
+            {
+                self.completionHandler();
+                self.completionHandler = nil;
+            }
         }
     }
 }
@@ -227,11 +259,38 @@ float randomFloat()
                      controlPoint:curvePoint];
     
     return particlePath;
-    
 }
 
-@end
+- (void)setTotalPieces:(NSUInteger)totalPieces {
+    objc_setAssociatedObject(self, @selector(totalPieces), @(totalPieces), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
 
-@implementation LPParticleLayer
+- (NSUInteger)totalPieces {
+    return [objc_getAssociatedObject(self, @selector(totalPieces)) unsignedIntegerValue];
+}
+
+- (void)setPieceCount:(NSUInteger)pieceCount {
+    objc_setAssociatedObject(self, @selector(pieceCount), @(pieceCount), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
+- (NSUInteger)pieceCount {
+    return [objc_getAssociatedObject(self, @selector(pieceCount)) unsignedIntegerValue];
+}
+
+- (void)setCompletionHandler:(void (^)(void))completionHandler {
+    objc_setAssociatedObject(self, @selector(completionHandler), completionHandler, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
+- (void(^)(void))completionHandler {
+    return objc_getAssociatedObject(self, @selector(completionHandler));
+}
+
+- (void)cleanTotalPieces {
+    objc_setAssociatedObject(self, @selector(totalPieces), nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
+- (void)cleanPieceCount {
+    objc_setAssociatedObject(self, @selector(pieceCount), nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
 
 @end

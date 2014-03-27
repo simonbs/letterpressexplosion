@@ -11,5 +11,7 @@
 @interface UIView (Explode)
 
 - (void)lp_explode;
+- (void)lp_explode:(void(^)(void))completion;
+- (void)lp_explodeWithRows:(NSUInteger)rows columns:(NSUInteger)columns speed:(CGFloat)speed completion:(void(^)(void))completion;
 
 @end

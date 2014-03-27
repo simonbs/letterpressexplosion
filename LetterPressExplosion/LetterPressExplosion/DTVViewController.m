@@ -46,7 +46,9 @@ static NSString *GESTURE_BLOCK = @"GESTURE_BLOCK";
     [self.view addSubview:imgV];
     
     [imgV setTappedGestureWithBlock:^{
-        [weakSelf lp_explode];
+        [weakSelf lp_explodeWithRows:3 columns:3 speed:1.0f completion:^{
+            [weakSelf removeFromSuperview];
+        }];
         [weakSelf setTappedGestureWithBlock:nil];
     }];
 }
